@@ -6,11 +6,11 @@ import jxl.Workbook;
 import jxl.write.Boolean;
 import jxl.write.*;
 import jxl.write.Number;
+import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.dbutils.DbUtils;
 import org.apache.commons.lang.StringUtils;
 import org.ho.yaml.Yaml;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -26,13 +26,14 @@ import java.util.regex.Pattern;
  * Created by Henry on 15/12/5.
  */
 @Component
+@Slf4j
 public class MigrateService {
     private static final int BATCH_WRITE_SIZE = 520000;
 
-    private Logger logger = LoggerFactory.getLogger(MigrateService.class);
-
     @Autowired
     private DataSource dataSource;
+
+    @Setter
     private String migrateTaskListFile;
 
     private Pattern pattern = Pattern.compile("(group\\s+by|order\\s+by|having|limit)", Pattern.CASE_INSENSITIVE);
@@ -40,10 +41,10 @@ public class MigrateService {
     public void run() throws SQLException, IOException, WriteException {
         MigrateTaskList migrateTaskList = null;
         try {
-            logger.info("Load file {}.", new File(migrateTaskListFile).getAbsolutePath());
+            log.info("Load file {}.", new File(migrateTaskListFile).getAbsolutePath());
             migrateTaskList = (MigrateTaskList) Yaml.load(new File(migrateTaskListFile));
         } catch (FileNotFoundException e) {
-            logger.error("File not found.", e);
+            log.error("File not found.", e);
         }
         Connection connection = dataSource.getConnection();
 
@@ -67,13 +68,13 @@ public class MigrateService {
                 List<String> conditions = getPageConditions(stmt, migrateTask.getSourceSql());
                 for (String condition : conditions) {
                     String sql = String.format("%s %s %s", migrateTask.getSourceSql(), gutter, condition);
-                    logger.info(sql);
+                    log.info(sql);
                     rs = stmt.executeQuery(sql);
                     writeToDB(rs, connection, table);
                 }
             } else {
                 String sql = migrateTask.getSourceSql();
-                logger.info(sql);
+                log.info(sql);
                 rs = stmt.executeQuery(sql);
                 if (table.endsWith(".xls")) {
                     writeToExcel(rs, table);
@@ -102,7 +103,7 @@ public class MigrateService {
         rs.next();
         int minId = rs.getInt(1);
         int maxId = rs.getInt(2);
-        logger.info("minId = {}, maxId = {}", minId, maxId);
+        log.info("minId = {}, maxId = {}", minId, maxId);
         List<String> conditions = new ArrayList<String>();
         for (int i = minId; i <= maxId + 1; i += BATCH_WRITE_SIZE) {
             conditions.add(String.format("id BETWEEN %d AND %d", i, i + BATCH_WRITE_SIZE - 1));
@@ -127,7 +128,7 @@ public class MigrateService {
         String[] pos = new String[num];
         Arrays.fill(pos, "?");
         String insertStr = String.format("INSERT INTO %s (%s) VALUES (%s);", table, StringUtils.join(columnLabels, ", "), StringUtils.join(pos, ", "));
-        logger.info(insertStr);
+        log.info(insertStr);
         PreparedStatement pstmt = conn.prepareStatement(insertStr);
 
         int n = 0;
@@ -142,14 +143,14 @@ public class MigrateService {
             try {
                 pstmt.executeUpdate();
             } catch (Exception e) {
-                logger.error("Insert error.", e);
+                log.error("Insert error.", e);
             }
             n++;
             if (n % BATCH_WRITE_SIZE == 0) {
-                logger.info("Migrate {} {} lines", table, n);
+                log.info("Migrate {} {} lines", table, n);
             }
         }
-        logger.info("Migrate {} {} lines", table, n);
+        log.info("Migrate {} {} lines", table, n);
 
         DbUtils.closeQuietly(pstmt);
     }
@@ -160,7 +161,7 @@ public class MigrateService {
         int num = columnLabels.length;
 
         File file = new File("/tmp", fileName);
-        logger.info("Write to Excel {}", file.getAbsolutePath());
+        log.info("Write to Excel {}", file.getAbsolutePath());
         OutputStream os = new FileOutputStream(file);
         WritableWorkbook wwb = Workbook.createWorkbook(os);
         WritableSheet ws = wwb.createSheet("Sheet 1", 0);
@@ -182,10 +183,10 @@ public class MigrateService {
                 }
             }
             if (n % BATCH_WRITE_SIZE == 0) {
-                logger.info("Migrate {} {} lines", file.getAbsolutePath(), n);
+                log.info("Migrate {} {} lines", file.getAbsolutePath(), n);
             }
         }
-        logger.info("Migrate {} {} lines", file.getAbsolutePath(), n);
+        log.info("Migrate {} {} lines", file.getAbsolutePath(), n);
 
         wwb.write();
         wwb.close();
@@ -212,21 +213,5 @@ public class MigrateService {
             columns[i - 1] = metaData.getColumnClassName(i);
         }
         return columns;
-    }
-
-    public DataSource getDataSource() {
-        return dataSource;
-    }
-
-    public void setDataSource(DataSource dataSource) {
-        this.dataSource = dataSource;
-    }
-
-    public String getMigrateTaskListFile() {
-        return migrateTaskListFile;
-    }
-
-    public void setMigrateTaskListFile(String migrateTaskListFile) {
-        this.migrateTaskListFile = migrateTaskListFile;
     }
 }
