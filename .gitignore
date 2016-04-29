@@ -1,0 +1,6 @@
+.idea
+*.iml
+target
+*.jar
+migrate_task_list.yml*
+application.properties*
